@@ -3,7 +3,7 @@ flask-socketio==5.3.6
 eventlet==0.36.1
 gunicorn==22.0.0
 opencv-python-headless==4.10.0.84
-mediapipe==0.10.14
+mediapipe==0.10.35
 groq==0.9.0
 numpy==1.26.4
 python-dotenv==1.0.1
