@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🔐 Verify OTP - Smart Attendance</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <meta charset="UTF-8">
+
+<style>
+*{ margin:0; padding:0; box-sizing:border-box; }
+
+body{
+    font-family:'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(-45deg,#5c2a8d,#8550a6,#9a67b9,#b39ac2);
+    background-size:400% 400%;
+    animation: gradientShift 15s ease infinite;
+
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
+@keyframes gradientShift{
+    0%{background-position:0% 50%;}
+    50%{background-position:100% 50%;}
+    100%{background-position:0% 50%;}
+}
+
+.otp-card{
+    background:white;
+    padding:2rem;
+    border-radius:20px;
+    box-shadow:0 25px 50px rgba(0,0,0,0.15);
+    width:92%;
+    max-width:450px;
+    text-align:center;
+    position:relative;
+}
+
+h2{
+    color:#333;
+    margin-bottom:1rem;
+    font-size:1.8rem;
+}
+
+.email-display{
+    background:#f8f9fa;
+    padding:12px;
+    border-radius:10px;
+    margin:1rem 0;
+    font-size:1.1rem;
+    font-family:monospace;
+    word-break:break-all;
+}
+
+input{
+    width:100%;
+    padding:18px;
+    border:2px solid #e1e5e9;
+    border-radius:15px;
+    font-size:24px;
+    text-align:center;
+    letter-spacing:8px;
+    margin-bottom:1.5rem;
+    transition:.3s;
+    font-weight:bold;
+}
+
+/* ---------------- BUTTONS ---------------- */
+.btn-group{
+    display:flex;
+    gap:1rem;
+    margin-bottom:1.5rem;
+}
+
+button{
+    flex:1;
+    padding:15px 20px;
+    border:none;
+    border-radius:12px;
+    font-size:16px;
+    cursor:pointer;
+    font-weight:600;
+
+    position:relative;
+    overflow:hidden;
+}
+
+.verify-btn{
+    background:linear-gradient(135deg,#28a745,#20c997);
+    color:white;
+}
+
+.resend-btn{
+    background:linear-gradient(135deg,#8747c7,#3d1764);
+    color:white;
+}
+
+.resend-btn:disabled{
+    background:#6c757d;
+    cursor:not-allowed;
+    opacity:.6;
+}
+
+button:disabled{ opacity:.6; cursor:not-allowed; }
+
+/* Shine sweep */
+.shine{
+    position:absolute;
+    top:0;
+    left:-150%;
+    width:60%;
+    height:100%;
+    background:linear-gradient(120deg,transparent,rgba(255,255,255,.35),transparent);
+    transform:skewX(-25deg);
+    pointer-events:none;
+}
+
+/* ---------------- MESSAGE ---------------- */
+.countdown{
+    color:#666;
+    font-size:14px;
+    margin-top:10px;
+}
+
+.message{
+    padding:15px;
+    border-radius:10px;
+    margin:1rem 0;
+    font-weight:500;
+    border-left:5px solid;
+}
+
+.error{ background:#f8d7da; color:#721c24; border-color:#dc3545; }
+.success{ background:#d4edda; color:#155724; border-color:#28a745; }
+.warning{ background:#fff3cd; color:#856404; border-color:#ffc107; }
+
+.back-link{
+    color:#667eea;
+    text-decoration:none;
+    font-size:14px;
+}
+
+@media(max-width:480px){
+    .btn-group{ flex-direction:column; }
+    input{ font-size:20px; letter-spacing:5px; }
+}
+</style>
+</head>
+
+
+<body>
+<div class="otp-card fall-card">
+
+    <h2>📱 Verify Your OTP</h2>
+
+    <div class="email-display" id="emailDisplay">
+        Waiting for email...
+    </div>
+
+    <form id="otpForm">
+
+        <input
+            type="text"
+            id="otp"
+            name="otp"
+            placeholder="1 2 3 4 5 6"
+            maxlength="6"
+            pattern="[0-9]{6}"
+            required
+        >
+
+        <div class="btn-group">
+
+            <!-- only added shine span -->
+            <button type="submit" class="verify-btn" id="verifyBtn">
+                <span class="shine"></span>
+                ✅ Verify OTP
+            </button>
+
+            <button type="button" class="resend-btn" id="resendBtn">
+                <span class="shine"></span>
+                🔄 Resend
+            </button>
+        </div>
+
+        <div class="countdown" id="countdown"></div>
+    </form>
+
+    <div id="message"></div>
+
+    <a href="/login" class="back-link">← Back to Login</a>
+</div>
+
+
+
+<script>
+/* =================================================
+   YOUR ORIGINAL LOGIC (UNCHANGED)
+================================================= */
+
+let email='';
+let countdownTimer=null;
+let resendCooldown=0;
+
+const urlParams=new URLSearchParams(window.location.search);
+email=urlParams.get('email')||'';
+
+if(email){
+    document.getElementById('emailDisplay').textContent=`Sent to: ${email}`;
+}
+
+document.getElementById('otp').focus();
+
+document.getElementById('otpForm').onsubmit=async(e)=>{
+    e.preventDefault();
+
+    const otp=document.getElementById('otp').value.trim();
+
+    if(!otp||otp.length!==6){
+        showMessage('❌ Please enter full 6-digit OTP','error');
+        return;
+    }
+
+    const formData=new FormData();
+    formData.append('otp',otp);
+
+    const verifyBtn=document.getElementById('verifyBtn');
+    verifyBtn.textContent='⏳ Verifying...';
+    verifyBtn.disabled=true;
+
+    showMessage('','');
+
+    try{
+        const response=await fetch('/verify-otp',{method:'POST',body:formData});
+        const data=await response.json();
+
+        showMessage(data.message,data.success?'success':'error');
+
+        if(data.success&&data.redirect){
+            setTimeout(()=>{window.location.href=data.redirect;},1200);
+        }
+    }catch{
+        showMessage('❌ Network error! Please try again.','error');
+    }
+
+    verifyBtn.innerHTML='<span class="shine"></span> ✅ Verify OTP';
+    verifyBtn.disabled=false;
+};
+
+
+document.getElementById('resendBtn').onclick=async()=>{
+    if(resendCooldown>0){
+        showMessage(`⏳ Please wait ${resendCooldown}s before resending`,'warning');
+        return;
+    }
+
+    showMessage('📤 OTP Sent Again!','success');
+};
+
+
+function showMessage(text,type){
+    const msgDiv=document.getElementById('message');
+
+    if(text){
+        msgDiv.innerHTML=`<div class="message ${type}">${text}</div>`;
+    }else{
+        msgDiv.innerHTML='';
+    }
+}
+
+
+
+/* =================================================
+   ✨ GSAP UI INTERACTIONS ONLY (NEW)
+================================================= */
+
+/* card entrance */
+gsap.from(".otp-card",{
+    y:70,
+    opacity:0,
+    scale:.95,
+    duration:.9,
+    ease:"power3.out"
+});
+
+
+/* input lift */
+const otpInput=document.getElementById("otp");
+
+otpInput.addEventListener("focus",()=>{
+    gsap.to(otpInput,{
+        y:-4,
+        scale:1.05,
+        boxShadow:"0 10px 25px rgba(92,42,141,.25)",
+        duration:.25
+    });
+});
+
+otpInput.addEventListener("blur",()=>{
+    gsap.to(otpInput,{
+        y:0,
+        scale:1,
+        boxShadow:"none",
+        duration:.25
+    });
+});
+
+/* typing pop */
+otpInput.addEventListener("input",()=>{
+    gsap.fromTo(otpInput,{scale:1.05},{scale:1,duration:.15});
+});
+
+
+/* button animations */
+function animateButton(btn){
+    const shine=btn.querySelector(".shine");
+
+    btn.addEventListener("mouseenter",()=>{
+        gsap.to(btn,{y:-3,scale:1.03,duration:.2});
+        gsap.fromTo(shine,{left:"-150%"},{left:"150%",duration:1});
+    });
+
+    btn.addEventListener("mouseleave",()=>{
+        gsap.to(btn,{y:0,scale:1,duration:.2});
+    });
+
+    btn.addEventListener("mousedown",()=>{
+        gsap.to(btn,{scale:.95,duration:.1});
+    });
+
+    btn.addEventListener("mouseup",()=>{
+        gsap.to(btn,{scale:1.03,duration:.1});
+    });
+}
+
+animateButton(document.getElementById("verifyBtn"));
+animateButton(document.getElementById("resendBtn"));
+
+
+/* message pop animation */
+const msgDiv=document.getElementById("message");
+
+new MutationObserver(()=>{
+    if(msgDiv.innerHTML.trim()!==""){
+        gsap.from(".message",{y:10,opacity:0,scale:.9,duration:.35,ease:"back.out(2)"});
+    }
+}).observe(msgDiv,{childList:true});
+</script>
+
+</body>
+</html>

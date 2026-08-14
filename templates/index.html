@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Attendance Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #f5576c);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+            min-height: 100vh;
+            color: #333;
+            overflow-x: hidden;
+            height: fit-content;
+        }
+        
+        .container { 
+            width: 100%; 
+            margin: 0 auto; 
+            padding: 20px; 
+            display: grid;
+            grid-template-columns: 64% 36%; /*BIGGER VIDEO (66%) + Chat (33%)*/
+            gap: 25px; 
+            min-height: 100vh;
+            height: fit-content;
+        }
+        
+        /* BIG VIDEO SECTION (Left - 66%) */
+        .video-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+            background-color: #dccee5;
+            border-radius: 10px;
+            height:980px
+        }
+        
+        .main-video {
+            background: #9a67b9;
+            border-radius: 5px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.15);
+            overflow: hidden;
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            width: 96%;
+            margin-left: 16px;
+            margin-top: 15px;
+            height: auto;
+        }
+        
+        .video-header {
+            padding: 20px;
+            background: #9a67b9;
+            color: white;
+            text-align: center;
+            height: 65px;
+        }
+        .video-header h1 {
+            font-size: 28px;
+            margin: 0;
+        }
+        
+        .video-live {
+            position: absolute;
+            top: 25px;
+            left: 30px;
+            background: transparent;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-weight: bold;
+            font-size: 16px;
+            z-index: 10;
+        }
+        .video-live.disconnected {
+            background: transparent;
+        }
+        
+        #video-feed {
+            width: 96%;
+            margin-left: 15px;
+            margin-top: 5px;
+            margin-bottom: 5px;
+            height: auto;
+            max-height: 60vh;
+            object-fit: cover;
+            display:block;
+            border-radius: 25px 25px 25px 25px;
+        }
+        
+        .status-bar {
+            padding: 10px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            /* row-gap: 20px; */
+            background: #9a67b9;
+        }
+        .status-item {
+            text-align: center;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            padding: 12px;
+            border-radius: 15px;
+            margin-left: 35px;
+            background: linear-gradient(to left top, #dccee5);
+        }
+        .status-value {
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+        .status-label {
+            font-size: 11px;
+            opacity: 0.9;
+        }
+        .status-present { color: #28a745 !important; }
+        .status-absent { color: #dc3545 !important; }
+        .status-connected { color: #28a745 !important; }
+        
+        /* ✅ FIXED: Controls Section - Proper Layout */
+        .controls-section {
+            padding: 15px;
+            background: #9a67b9;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+            border-radius: 5px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin-bottom: 15px;
+            margin-left: 15px;
+            width: 96%;
+            margin-top: 10px;   
+        }
+        
+        .controls-section h3 {
+            color: black;
+            font-size: 1.4em;
+            text-align: center;
+            /* margin-bottom: 5px; */
+        }
+        
+        /* ✅ Speech Section - Fixed */
+        .speech-section {
+            background: linear-gradient(to top left,#dccee5);
+            border: 2px solid #d2bfde;
+            border-radius: 20px;
+            padding: 25px;
+            text-align: center;
+        }
+        
+        .speech-display {
+            background: linear-gradient(to right bottom,#e3d1ed 0%,#b39ac2 50%,#b39ac2 100%);
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+            min-height: 80px;
+            font-family:Georgia, 'Times New Roman', Times, serif;
+            font-size: 14px;
+            color: #2c3e50;
+            border-left: 4px solid #9a67b9;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.05);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        .speech-display.listening {
+            /* border-left-color: #27ae60; */
+            /* background: linear-gradient(90deg, #d5f4e6, #ffffff); */
+            box-shadow: 0 0 3px rgb(63, 63, 63);
+        }
+        
+        .speech-btn {
+            padding: 16px 32px;
+            font-size: 16px;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+            width: 100%;
+            max-width: 280px;
+            margin: 0 auto;
+            display: block;
+        }
+        
+        .start-btn {
+            animation: speech_button_start 2s ease-in-out;
+            animation-direction: alternate;
+            animation-iteration-count: infinite;
+            color: white;
+        }
+        .start-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(76, 175, 80, 0.4);
+        }
+        
+        .stop-btn {
+            animation: speech_button_stop 2s ease-in-out;
+            animation-iteration-count: infinite;
+            animation-direction: alternate;
+            color: white;
+        }
+        .stop-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(244, 67, 54, 0.4);
+        }
+        
+        /* Filter Buttons - Fixed Grid */
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 12px;
+            /* margin-top: 5px; */
+        }
+        
+        .filter-btn {
+            padding: 12px 8px;
+            border: 2px solid transparent;
+            background: linear-gradient(to left top, #dccee5);
+            color: #000000;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s;
+            height: 50px;
+        }
+        .filter-btn.active,
+        .filter-btn:hover {
+           background: #7d2ab1;
+            transform: translateY(-4px);
+            box-shadow: 0 6px 20px #aa8abe;
+            color: white;
+
+        }
+        
+        /* CHAT SECTION (Right - 33%) */
+        .chat-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background-color: #d2bfde;
+            border-radius: 10px;
+            height: 980px;
+            overflow: hidden;
+            width: 95%;
+        }
+        
+        .chat-panel {
+            background: #dccee5;
+            border-radius: 5px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+            display: flex;
+            flex: 1;
+            min-height: 0;
+            flex-direction: column;
+            width: 91.5%;
+            margin-left: 15px;
+            margin-top: 15px;
+        }
+
+        
+        .chat-header {
+            background: #9a67b9;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .chat-header h2 {
+            font-size: 24px;
+            margin: 0 0 5px 0;
+        }
+        
+       #chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: linear-gradient(to left top, #dccee5);
+            min-height: 0;             /* ⭐ makes flex scroll work */
+        }
+
+        .message {
+            margin-bottom: 18px;
+            animation: fadeIn 0.4s ease-in;
+        }
+        .message.user { text-align: right; }
+        .message.user .msg-bubble {
+            background: linear-gradient(to top left,#b39ac2 0%,#b39ac2 50%,#c7b6d0 100%);
+            color: white;
+            display: inline-block;
+            padding: 14px 20px;
+            border-radius: 22px 22px 6px 22px;
+            max-width: 85%;
+            box-shadow: 0 4px 12px #905db0;
+        }
+        .message.ai { text-align: left; }
+        .message.ai .msg-bubble {
+            background: linear-gradient(to right bottom,#b39ac2 0%,#b39ac2 50%,#c7b6d0 100%);
+            color: #333;
+            display: inline-block;
+            padding: 14px 20px;
+            border-radius: 22px 22px 22px 6px;
+            max-width: 85%;
+            box-shadow: 0 4px 12px #905db0;
+        }
+        
+        .chat-input {
+            padding: 20px;
+            background: linear-gradient(to left top, #dccee5);
+            border-top: 1px solid #eee;
+            /* display: flex; */
+            gap: 12px;
+            width: 100%;
+        }
+        #message-input {
+            flex: 1;
+            padding: 16px 20px;
+            border: 2px solid #e9ecef;
+            border-radius: 30px;
+            font-size: 16px;
+            outline: none;
+            transition: all 0.3s;
+            width: 65%;
+        }
+        #message-input:focus {
+            border-color: #7d2ab1;
+            /* box-shadow: 0 0 0 3px rgba(0,123,255,0.1); */
+        }
+        #send-btn {
+            padding: 16px 28px;
+            background: linear-gradient(135deg,#8747c7, #3d1764);
+            color: white;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+            
+        }
+        #send-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px #905db0;
+        }
+        
+        /* Records */
+        .records-section {
+            background: #9a67b9;
+            border-radius: 5px;
+            padding: 20px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 92%;
+            margin-left: 15px;
+            margin-bottom: 15px;
+        }
+        .record-link {
+            display: block;
+            margin: 10px 0;
+            padding: 14px 20px;
+            background: linear-gradient(to left top, #dccee5);
+            color: black;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .record-link:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 10px #c7b5d3;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Mobile Responsive */
+        @media (max-width: 1024px) {
+            .container { 
+                grid-template-columns: 1fr; 
+                grid-template-rows: 2fr 1fr;
+                padding: 15px;
+                height: auto;
+            }
+            #video-feed { height: 50vh; }
+        }
+        @keyframes speech_button_stop{
+            0%{
+                background-color:#8e0202
+            }
+            30%{
+                background-color: #b3060c;
+            }
+            65%{
+                background-color: #c11619;
+            }
+            100%{
+                background-color: #f82a2d;
+            }
+        }
+        @keyframes speech_button_start{
+            0%{ background-color: #4CAF50;}
+            30%{background-color: #37a33b;}
+            60%{background-color: #209824;}
+            100%{background-color: #057f09;}
+        }
+
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .video-feed {
+            width: 100%;
+            max-width: 900px;
+            height: auto;
+            border-radius: 15px;
+        }
+
+        .status-bar {
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        }
+
+        .navbar{
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid rgb(78, 77, 77);
+            
+        }
+        .navbar img{
+            width: 40px;
+            height: 40px;
+            
+        }
+        .navbar div{
+            display: flex;
+            gap: 30px;
+            font-size: 20px;
+        }
+
+        .main{
+            display: flex;
+            flex-direction: column;
+        }
+
+        .navbarmain{
+            padding: 10px 10px ;
+        }
+
+        .image{
+            display: flex;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- BIG VIDEO SECTION (66%) -->
+        <div class="video-section">
+            <div class="main-video">
+                <div class="video-header">
+                    <h1>📹 Live Camera Feed</h1>
+                </div>
+                <div class="video-live connected" id="liveIndicator" style="height: 30px; width: 120px; font-size: 10px;">🟢 LIVE</div>
+                <!-- Raw webcam stream from getUserMedia; stays hidden, used only as the source we capture frames from -->
+                <video id="local-video" autoplay playsinline muted style="display:none;"></video>
+                <!-- Annotated frame streamed back from the server is drawn here -->
+                <canvas id="video-feed" class="video-feed"></canvas>
+                <div id="camera-error" style="display:none; color:#c33; text-align:center; padding:10px; font-weight:bold;">
+                    ⚠️ Camera access denied or unavailable. Allow camera permissions and reload the page.
+                </div>
+                <div class="status-bar" id="statusBar">
+                    <div class="status-item" style="height:70px; width: 140px; ">
+                        <div class="status-value" id="attendanceStatus">Absent</div>
+                        <div class="status-label">Attendance</div>
+                    </div>
+                    <!-- <div class="status-item" style="height:70px; width: 140px;">
+                        <div class="status-value" id="presentCounter">0</div>
+                        <div class="status-label">Live Present</div>
+                    </div>
+                    <div class="status-item" style="height:70px; width: 140px;">
+                        <div class="status-value" id="absentCounter">0</div>
+                        <div class="status-label">Live Absent</div>
+                    </div> -->
+                    <div class="status-item" style="height:70px; width: 140px;">
+                        <div class="status-value" id="expressionStatus">Neutral</div>
+                        <div class="status-label">Expression</div>
+                    </div>
+                    <div class="status-item" style="height:70px; width: 140px;">
+                        <div class="status-value" id="gestures">None</div>
+                        <div class="status-label">Gesture</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- ✅ FIXED: Controls Section -->
+            <div class="controls-section">
+                <!-- Speech Section -->
+                <div class="speech-section">
+                    <h3>🎤 Speech Recognition</h3>
+                    <div class="speech-display" id="speechDisplay">
+                        <div id="speechText">No speech detected...</div>
+                    </div>
+                    <button id="speechToggle" class="speech-btn start-btn">▶️ START Listening</button>
+                </div>
+                
+                <!-- Filter Controls -->
+                <h3>Video Filters</h3>
+                <div class="filter-grid">
+                    <button class="filter-btn active " data-filter="normal" onclick="setFilter('normal')" id="bt1">Normal</button>
+                    <button class="filter-btn" data-filter="bw" onclick="setFilter('bw')" id="bt2">B&W</button>
+                    <button class="filter-btn" data-filter="red" onclick="setFilter('red')" id="bt3">Red</button>
+                    <button class="filter-btn" data-filter="blur" onclick="setFilter('blur')" id="bt4">Blur</button>
+                    <button class="filter-btn" data-filter="cartoon" onclick="setFilter('cartoon')" id="bt5">Cartoon</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- CHAT SECTION (33%) -->
+        <div class="chat-section">
+            <div class="chat-panel">
+                <div class="chat-header">
+                    <h2>🤖 AI Assistant</h2>
+                    <div style="font-size: 12px; opacity: 0.9;">Ask about status, gestures, speech...</div>
+                </div>
+                <div id="chat-messages"></div>
+                <div class="chat-input">
+                    <input type="text" id="message-input" placeholder="Type your message..." 
+                           onkeypress="if(event.key==='Enter') sendMessage()">
+                    <button id="send-btn" onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+            
+            <div class="records-section">
+                <a href="/attendance-all" class="record-link" target="_blank">📋 All Attendance Records</a>
+                <a href="/speech-records" class="record-link" target="_blank">🎤 Speech Records</a>
+            </div>
+        </div>
+    </div>
+    <script>
+        const socket = io();
+        const chatMessages = document.getElementById('chat-messages');
+        let currentFilter = 'normal';
+        let isListening = false;
+
+        // Socket Events
+        socket.on('connect', () => {
+            console.log('✅ Connected!');
+            updateLiveStatus('🟢 LIVE', true);
+            addMessage('System', 'Connected to AI Attendance System ✅', 'ai');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('❌ Disconnected');
+            updateLiveStatus('🔴 Disconnected', false);
+            addMessage('System', 'Connection lost. Reconnecting...', 'ai');
+        });
+
+        socket.on('response', (data) => {
+            addMessage('AI', data.message, 'ai');
+        });
+
+        /* ==============================
+           BROWSER WEBCAM CAPTURE
+           Opens the VISITOR'S own camera (getUserMedia), draws frames to
+           a hidden canvas, sends each as a JPEG to the server over the
+           socket, and paints whatever annotated frame the server sends
+           back onto the visible canvas. Replaces the old server-side
+           cv2.VideoCapture()-driven MJPEG stream at /video.
+        ============================== */
+        const localVideo = document.getElementById('local-video');
+        const displayCanvas = document.getElementById('video-feed');
+        const displayCtx = displayCanvas.getContext('2d');
+        const captureCanvas = document.createElement('canvas');
+        const captureCtx = captureCanvas.getContext('2d');
+        const cameraErrorEl = document.getElementById('camera-error');
+
+        const FRAME_WIDTH = 640;
+        const FRAME_HEIGHT = 480;
+        const SEND_INTERVAL_MS = 200; // ~5 fps sent to the server, adjust for your bandwidth/CPU budget
+
+        displayCanvas.width = FRAME_WIDTH;
+        displayCanvas.height = FRAME_HEIGHT;
+        captureCanvas.width = FRAME_WIDTH;
+        captureCanvas.height = FRAME_HEIGHT;
+
+        let sendTimer = null;
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: FRAME_WIDTH, height: FRAME_HEIGHT },
+                    audio: false
+                });
+                localVideo.srcObject = stream;
+                await localVideo.play();
+                cameraErrorEl.style.display = 'none';
+
+                sendTimer = setInterval(() => {
+                    if (localVideo.readyState < 2) return; // not enough data yet
+                    captureCtx.drawImage(localVideo, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+                    const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.7);
+                    socket.emit('frame', { image: dataUrl });
+                }, SEND_INTERVAL_MS);
+            } catch (err) {
+                console.error('Camera error:', err);
+                cameraErrorEl.style.display = 'block';
+                updateLiveStatus('🔴 No Camera', false);
+            }
+        }
+
+        socket.on('processed_frame', (data) => {
+            const img = new Image();
+            img.onload = () => {
+                displayCtx.drawImage(img, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
+            };
+            img.src = data.image;
+        });
+
+        startCamera();
+
+        // ✅ FIXED: Update Status with Speech Display
+        function updateStatus() {
+            fetch('/status')
+                .then(r => r.json())
+                .then(data => {
+                    // Status updates
+                    document.getElementById('attendanceStatus').textContent = data.attendance;
+                    document.getElementById('attendanceStatus').className = 
+                        `status-value status-${data.attendance.toLowerCase().replace(/ /g, '-')}`;
+                    
+                    //document.getElementById('presentCounter').textContent = data.present_count;
+                    //document.getElementById('absentCounter').textContent = data.absent_count;
+                    document.getElementById('expressionStatus').textContent = data.expression;
+                    document.getElementById('gestures').textContent = data.gesture;
+                    
+                    // ✅ Speech Display Update
+                    const speechText = document.getElementById('speechText');
+                    const speechDisplay = document.getElementById('speechDisplay');
+                    if (data.speech && data.speech.trim()) {
+                        speechText.textContent = `"${data.speech}"`;
+                        speechDisplay.classList.add('listening');
+                    } else {
+                        speechText.textContent = 'No speech detected...';
+                        speechDisplay.classList.remove('listening');
+                    }
+                    
+                    // Speech button state
+                    isListening = data.listening;
+                    const speechBtn = document.getElementById('speechToggle');
+                    if (isListening) {
+                        speechBtn.innerHTML = '⏹️ STOP Listening';
+                        speechBtn.className = 'speech-btn stop-btn';
+                    } else {
+                        speechBtn.innerHTML = '▶️ START Listening';
+                        speechBtn.className = 'speech-btn start-btn';
+                    }
+                });
+        }
+
+        function addMessage(sender, message, type) {
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            div.className = `message ${type}`;
+            div.innerHTML = `
+                <div class="msg-bubble">
+                    <div style="font-size: 11px; opacity: 0.7; margin-bottom: 6px;">${time} ${sender}</div>
+                    ${message.replace(/\n/g, '<br>')}
+                </div>
+            `;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            if (message) {
+                addMessage('You', message, 'user');
+                socket.emit('message', {message: message});
+                input.value = '';
+            }
+        }
+
+        /* ==============================
+           BROWSER SPEECH-TO-TEXT
+           Uses the Web Speech API (SpeechRecognition) to transcribe the
+           visitor's own microphone in-browser, then sends each recognized
+           phrase to the server over the socket. Replaces the old
+           server-side sr.Microphone() + speech_recognition loop, which
+           tried to open a mic on the server itself.
+        ============================== */
+        const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognizer = null;
+        let recognitionActive = false; // whether we WANT it running (survives auto-restarts)
+
+        if (SpeechRecognitionAPI) {
+            recognizer = new SpeechRecognitionAPI();
+            recognizer.continuous = true;
+            recognizer.interimResults = false;
+            recognizer.lang = 'en-US';
+
+            recognizer.onresult = (event) => {
+                const last = event.results[event.results.length - 1];
+                const text = last[0].transcript.trim();
+                if (!text) return;
+                socket.emit('speech_text', { text });
+                // Reflect it immediately instead of waiting for the next /status poll
+                const speechText = document.getElementById('speechText');
+                const speechDisplay = document.getElementById('speechDisplay');
+                speechText.textContent = `"${text}"`;
+                speechDisplay.classList.add('listening');
+            };
+
+            recognizer.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+            };
+
+            // Some browsers auto-stop the recognizer after a pause; restart
+            // it automatically as long as the user still wants it listening.
+            recognizer.onend = () => {
+                if (recognitionActive) {
+                    try { recognizer.start(); } catch (e) { /* already starting */ }
+                }
+            };
+        } else {
+            console.warn('Web Speech API not supported in this browser (try Chrome/Edge).');
+        }
+
+        function toggleSpeech() {
+            fetch('/toggle-speech', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (!SpeechRecognitionAPI) {
+                        addMessage('System', '⚠️ Speech recognition isn\'t supported in this browser. Try Chrome or Edge.', 'ai');
+                        return;
+                    }
+                    recognitionActive = data.listening;
+                    if (recognitionActive) {
+                        try { recognizer.start(); } catch (e) { /* may already be running */ }
+                    } else {
+                        recognizer.stop();
+                    }
+                    updateStatus();
+                });
+        }
+
+        function setFilter(name) {
+            // Remove active class from all filter buttons
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        // Add active class to clicked button
+        event.target.classList.add('active');
+    
+        // Fetch to update backend filter
+        fetch(`/filter/${name}`)
+            .then(() => console.log(`Filter set to ${name}`))
+            .catch(err => console.error('Filter error:', err));
+        }
+
+
+        function updateLiveStatus(text, connected) {
+            const indicator = document.getElementById('liveIndicator');
+            indicator.textContent = text;
+            indicator.className = `video-live ${connected ? 'connected' : 'disconnected'}`;
+        }
+
+        // Event listeners
+        document.getElementById('speechToggle').onclick = toggleSpeech;
+
+        // Auto updates
+        setInterval(updateStatus, 1500);
+        updateStatus();
+    </script>
+    
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Webcam</title>
+    <!-- GSAP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <style>
+        body{
+            height:100vh;
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+            align-items:center;
+            background:linear-gradient(135deg,#9841ce,#cab2d9);
+            font-family:Segoe UI, sans-serif;
+            overflow:hidden;
+        }
+
+        #title{
+            font-size: clamp(30px, 8vw, 70px);
+            font-weight:800;
+            color:white;
+            letter-spacing:2px;
+            white-space:nowrap;
+            margin-left: 50px;
+        }
+
+        .letter{
+            display:inline-block;
+        }
+
+        button{
+            margin-top:50px;
+            padding:14px 30px;
+            font-size:18px;
+            border:none;
+            border-radius:30px;
+            cursor:pointer;
+            background:white;
+            color: #080808;
+            transition: all 0.5s;
+            width: 80%;
+            max-width: 260px;
+        }
+
+        button:hover{
+            transform: translateY(-5px);
+            background: linear-gradient(135deg,#8747c7, #3d1764);
+            box-shadow: 0px 0px 10px #5c5c5c;
+            color: white;
+            
+        }
+
+    #logo1{
+        position: relative;
+        top: 128px;
+        left: -300px; 
+        animation: logo 1 1s forwards ;     
+    }
+    @keyframes logo {
+        
+    }
+    </style>
+</head>
+
+<body>
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="logo" height="60px" width="60px" id="logo1">
+    <h1 id="title">Smart Webcam</h1>
+    <button id="enterBtn">Continue</button>
+
+    <script>
+        const title = document.getElementById("title");
+        const btn = document.getElementById("enterBtn");
+
+        // 🔹 Split letters
+        title.innerHTML = title.textContent
+            .split("")
+            .map(l => l === " " 
+                    ? `<span class="letter">&nbsp;</span>` 
+                    : `<span class="letter">${l}</span>`)
+            .join("");
+
+        const letters = document.querySelectorAll(".letter");
+
+
+        // ======================
+        // ENTRY ANIMATION
+        // ======================
+        gsap.from([letters], {
+            y: 500,        
+            opacity: 0,
+            duration: 1,
+            stagger: 0.1,
+            ease: "power4.out"
+        });
+
+
+        // ======================
+        // EXIT ANIMATION
+        // ======================
+        btn.addEventListener("click", () => {
+
+            const tl = gsap.timeline({
+                onComplete: () => {
+                    window.location.href = "/login"; // next page
+                }
+            });
+
+            tl.to([letters,"#logo1"], {
+                y: -500,       
+                opacity: 0,
+                duration: 1,
+                stagger: 0.05,
+                ease: "power4.in"
+            });
+        });
+gsap.from("#logo1", {
+            y: 500,        
+            opacity: 0,
+            duration: 1,
+            stagger: 0.1,
+            ease: "power4.out"
+        });
+
+
+    </script>
+
+</body>
+</html>
