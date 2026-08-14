@@ -497,6 +497,16 @@ def speech_records():
     html += '</table></body></html>'
     return html
 
+@socketio.on('connect')
+def handle_connect():
+    """Reject the socket connection outright if there's no logged-in session,
+    and log every connect attempt so it's visible in the server logs."""
+    username = session.get('username')
+    if not username:
+        print("⚠️  Socket connect rejected: no authenticated session.")
+        return False  # refuses the connection; client gets a 'connect_error'
+    print(f"🔌 Socket connected: {username}")
+
 @socketio.on('frame')
 def handle_frame(data):
     """
@@ -509,7 +519,8 @@ def handle_frame(data):
     """
     username = session.get('username')
     if not username:
-        return  # not authenticated — ignore silently
+        emit('processing_error', {'stage': 'auth', 'message': 'Not logged in — please refresh and sign in again.'})
+        return
     try:
         data_url = data.get('image', '') if isinstance(data, dict) else data
         # Strip the "data:image/jpeg;base64," prefix if present
@@ -519,6 +530,7 @@ def handle_frame(data):
         np_arr = np.frombuffer(img_bytes, dtype=np.uint8)
         frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         if frame is None:
+            emit('processing_error', {'stage': 'decode', 'message': 'Server could not decode the video frame.'})
             return
 
         state = get_user_state(username)
@@ -526,11 +538,15 @@ def handle_frame(data):
 
         ok, buffer = cv2.imencode('.jpg', processed, [cv2.IMWRITE_JPEG_QUALITY, 70])
         if not ok:
+            emit('processing_error', {'stage': 'encode', 'message': 'Server could not encode the processed frame.'})
             return
         out_b64 = base64.b64encode(buffer).decode('utf-8')
         emit('processed_frame', {'image': f'data:image/jpeg;base64,{out_b64}'})
     except Exception as e:
+        import traceback
+        traceback.print_exc()  # full traceback in server logs for real debugging
         print(f"Frame processing error ({username}): {e}")
+        emit('processing_error', {'stage': 'process', 'message': str(e)})
 
 
 @socketio.on('speech_text')

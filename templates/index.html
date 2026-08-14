@@ -569,6 +569,25 @@
             addMessage('System', 'Connection lost. Reconnecting...', 'ai');
         });
 
+        socket.on('connect_error', (err) => {
+            console.error('Socket connect_error:', err.message);
+            updateLiveStatus('🔴 Connection refused', false);
+            addMessage('System', `⚠️ Couldn't connect: ${err.message}. Try logging in again.`, 'ai');
+        });
+
+        // Surfaces server-side frame processing failures instead of failing silently
+        let lastFrameErrorLogged = 0;
+        socket.on('processing_error', (data) => {
+            console.error(`Frame processing error [${data.stage}]:`, data.message);
+            // Throttle the visible chat message so a stream of per-frame
+            // errors doesn't spam the chat log — one every 5s is plenty.
+            const now = Date.now();
+            if (now - lastFrameErrorLogged > 5000) {
+                addMessage('System', `⚠️ Camera processing error: ${data.message}`, 'ai');
+                lastFrameErrorLogged = now;
+            }
+        });
+
         socket.on('response', (data) => {
             addMessage('AI', data.message, 'ai');
         });
