@@ -11,18 +11,13 @@ from groq import Groq
 import numpy as np  
 import base64
 import math
-import random
-import smtplib
-import ssl
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 
 load_dotenv()
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-otp_storage = {}
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 logging.getLogger('absl').setLevel(logging.ERROR)
 
@@ -49,17 +44,39 @@ SPEECH_DB_PATH = os.environ.get("SPEECH_DB_PATH", "speech.db")
 
 DEBUG = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 
-# OTP Configuration - set these in your .env file / host's env vars
-OTP_SENDER_EMAIL = os.environ.get("OTP_SENDER_EMAIL")
-OTP_SENDER_PASSWORD = os.environ.get("OTP_SENDER_PASSWORD")
-if not OTP_SENDER_EMAIL or not OTP_SENDER_PASSWORD:
-    print("⚠️  OTP_SENDER_EMAIL / OTP_SENDER_PASSWORD not set — OTP emails will fail to send.")
-
-is_listening = False
-current_speech_text = ""
-present_count = 0
-absent_count = 0
 LOCKED_ABSENT = "LOCKED ABSENT"
+
+# In-memory per-user live state (face/expression/gesture/filter/speech/etc).
+# Keyed by username so concurrent users never see or overwrite each other's
+# live camera/mic status — DB writes (attendance, speech records) are also
+# always tagged with the acting user's own username, never a shared global.
+# NOTE: this lives in process memory, so it resets on restart/redeploy and
+# won't be shared across multiple server instances/workers. Fine for a
+# single-worker deployment (this project's Procfile uses `-w 1`); a
+# multi-worker or multi-instance deployment would need this moved to a
+# shared store (e.g. Redis) instead.
+user_states = {}
+
+def get_user_state(username):
+    """Return (creating if needed) the live state dict for this username."""
+    today_str = date.today().isoformat()
+    state = user_states.get(username)
+    if state is None or state.get('session_date') != today_str:
+        state = {
+            'user_id': username,
+            'face_detected': False,
+            'expression': 'neutral',
+            'gesture': 'none',
+            'current_filter': 'normal',
+            'attendance_status': 'Absent',
+            'present_count': 0,
+            'absent_count': 0,
+            'is_listening': False,
+            'current_speech_text': '',
+            'session_date': today_str,
+        }
+        user_states[username] = state
+    return state
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -71,6 +88,12 @@ def init_db():
                   status TEXT NOT NULL,
                   last_updated TEXT NOT NULL,
                   is_locked INTEGER DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS users
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  username TEXT NOT NULL UNIQUE,
+                  email TEXT NOT NULL UNIQUE,
+                  password_hash TEXT NOT NULL,
+                  created_at TEXT NOT NULL)''')
     conn.commit()
     conn.close()
 
@@ -142,28 +165,24 @@ def get_attendance_counts(userid):
     conn.close()
     return present, absent, locked
 
-def send_otp_email(email, otp):
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = OTP_SENDER_EMAIL
-        msg['To'] = email
-        msg['Subject'] = '🔐 Smart Attendance OTP'
-        msg.attach(MIMEText(f'Your OTP is: **{otp}**\n\nExpires in 5 minutes.', 'plain'))
-        
-        context = ssl.create_default_context()
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
-            server.starttls(context=context)
-            server.login(OTP_SENDER_EMAIL, OTP_SENDER_PASSWORD)  # App password here
-            server.sendmail(OTP_SENDER_EMAIL, email, msg.as_string())
-        print(f"✅ Email sent!")
-        return True
-    except Exception as e:
-        print(f"❌ Email error: {e}")
-        return False
+def get_user_by_username(username):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('SELECT id, username, email, password_hash FROM users WHERE username=?', (username,))
+    row = c.fetchone()
+    conn.close()
+    return row
 
-def generate_otp():
-    """Generate 6-digit random OTP"""
-    return str(random.randint(100000, 999999))
+def create_user(username, email, password):
+    password_hash = generate_password_hash(password)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        'INSERT INTO users (username, email, password_hash, created_at) VALUES (?, ?, ?, ?)',
+        (username, email, password_hash, datetime.now().isoformat(timespec='seconds'))
+    )
+    conn.commit()
+    conn.close()
 
 # Speech-to-text now happens in the VISITOR'S BROWSER using the Web Speech
 # API (see the 'speech_text' Socket.IO handler below and index.html), so
@@ -188,14 +207,18 @@ mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(min_detection_confidence=0.7)
 mp_draw = mp.solutions.drawing_utils
 
-# Global state
-face_detected = False
-expression = "neutral"
-gesture = "none"
-current_filter = "normal"
+# Static config (not per-user)
 filters = ["normal", "bw", "red", "blur", "cartoon"]
-CURRENT_USERID='' 
-attendance_status = "Absent"
+
+def login_required(view_func):
+    """Redirect to /login if there's no authenticated user in the session."""
+    from functools import wraps
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if not session.get('user_id'):
+            return redirect('/login')
+        return view_func(*args, **kwargs)
+    return wrapped
 
 # Your existing functions (fingers_up, detect_gesture, filters - unchanged)
 def fingers_up(hand, hand_label):
@@ -244,32 +267,22 @@ def filter_cartoon(frame):
     color = cv2.bilateralFilter(frame, 9, 300, 300)
     return cv2.bitwise_and(color, color, mask=edges)
 
-_session_start = None
-
-def process_frame(frame):
+def process_frame(frame, state):
     """
     Run face/expression/gesture detection + the active filter on a single
     frame that was captured in the browser (getUserMedia) and sent to us.
-    Mutates the global status variables and returns the annotated frame,
-    same logic as the original generate_frames(), just driven by an
-    incoming frame instead of a local cv2.VideoCapture() loop.
+    Mutates the given per-user `state` dict (from get_user_state()) instead
+    of module-level globals, so each logged-in user's live detection status
+    is fully isolated from every other concurrently connected user.
+    Returns the annotated frame.
     """
-    global face_detected, expression, gesture, current_filter, attendance_status
-    global present_count, absent_count, _session_start
-
-    today_str = date.today().isoformat()
-    if _session_start != today_str:
-        present_count = 0
-        absent_count = 0
-        _session_start = today_str
-
     small_frame = cv2.resize(frame, (DETECT_WIDTH, DETECT_HEIGHT))
     gray_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
     rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
     faces = face_cascade.detectMultiScale(gray_small, 1.3, 5)
-    face_detected = len(faces) > 0
-    expression = "neutral"
+    state['face_detected'] = len(faces) > 0
+    state['expression'] = "neutral"
 
     frame_h, frame_w = frame.shape[:2]
     for (x, y, w, h) in faces:
@@ -279,37 +292,39 @@ def process_frame(frame):
         smiles = smile_cascade.detectMultiScale(roi_gray, 1.8, 20)
         eyes = eye_cascade.detectMultiScale(roi_gray, 1.3, 10)
 
-        if len(smiles)>0: expression = "Smile 😊"
-        elif len(eyes)==0: expression = "Angry 😠"
-        elif len(eyes)==1: expression = "Sad 😞"
-        elif len(eyes)>=2 and h>180: expression = "Stunned 😲"
+        if len(smiles)>0: state['expression'] = "Smile 😊"
+        elif len(eyes)==0: state['expression'] = "Angry 😠"
+        elif len(eyes)==1: state['expression'] = "Sad 😞"
+        elif len(eyes)>=2 and h>180: state['expression'] = "Stunned 😲"
         cv2.rectangle(frame, (x,y), (x+w,y+h), (0,255,0), 2)
 
-    new_status = "Present" if face_detected else "Absent"
+    new_status = "Present" if state['face_detected'] else "Absent"
     if new_status == "Present":
-        present_count += 1
+        state['present_count'] += 1
     else:
-        absent_count += 1
+        state['absent_count'] += 1
 
-    if absent_count >= 5000 and attendance_status != LOCKED_ABSENT:
-        set_attendance(CURRENT_USERID, "Absent")
-        attendance_status = LOCKED_ABSENT
-    elif new_status != attendance_status and attendance_status != LOCKED_ABSENT:
-        updated = set_attendance(CURRENT_USERID, new_status)
+    user_id = state['user_id']
+    if state['absent_count'] >= 5000 and state['attendance_status'] != LOCKED_ABSENT:
+        set_attendance(user_id, "Absent")
+        state['attendance_status'] = LOCKED_ABSENT
+    elif new_status != state['attendance_status'] and state['attendance_status'] != LOCKED_ABSENT:
+        updated = set_attendance(user_id, new_status)
         if updated:
-            attendance_status = new_status
+            state['attendance_status'] = new_status
 
     # Hand detection
     result = hands.process(rgb_small)
-    gesture = "none"
+    state['gesture'] = "none"
     if result.multi_hand_landmarks and result.multi_handedness:
         for hand_landmarks, handedness in zip(result.multi_hand_landmarks, result.multi_handedness):
             hand_label = handedness.classification[0].label
-            gesture = detect_gesture(hand_landmarks, hand_label)
-            gesture = f"{hand_label}:{gesture}"
+            g = detect_gesture(hand_landmarks, hand_label)
+            state['gesture'] = f"{hand_label}:{g}"
             mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
     # Apply filters
+    current_filter = state['current_filter']
     if current_filter == "bw":
         frame = filter_bw(frame)
     elif current_filter == "red":
@@ -319,7 +334,7 @@ def process_frame(frame):
     elif current_filter == "cartoon":
         frame = filter_cartoon(frame)
 
-    cv2.putText(frame, f"Mic: {'ON' if is_listening else 'OFF'}", (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 1), 2)
+    cv2.putText(frame, f"Mic: {'ON' if state['is_listening'] else 'OFF'}", (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 1), 2)
 
     return frame
 
@@ -328,15 +343,13 @@ def process_frame(frame):
 def index():
     return render_template('front_page.html')
 
-@app.route('/login')
+@app.route('/signup', methods=['GET'])
+def signup_page():
+    return render_template('signup_page.html')
+
+@app.route('/login', methods=['GET'])
 def login_page():
     return render_template('middle_page.html')
-
-@app.route('/otp')
-def otp_page():
-    if 'otp_verified' not in session:
-        return render_template('otp_page.html', error="Please enter your email first!")
-    return render_template('otp_page.html')
 
 @app.route('/attendance-all')
 def attendance_all():
@@ -355,206 +368,96 @@ def attendance_all():
     return html
 
 
-@app.route('/send-otp', methods=['POST'])
-def send_otp():
-    # ✅ SAFE WAY - Check if form data exists first
+@app.route('/signup', methods=['POST'])
+def signup():
     if not request.form:
-        return jsonify({
-            'success': False, 
-            'message': '❌ No form data received!'
-        }), 400
-    
-    email = request.form.get("email")
-    
-    # ✅ NULL CHECK BEFORE STRIP
-    if not email:  # None, empty string, or whitespace
-        return jsonify({
-            'success': False, 
-            'message': '❌ Please enter your email address!'
-        }), 400
-    
-    email = email.strip()
-    
-    if '@' not in email or not email.endswith(('.com', '.in', '.org', '.edu')):
-        return jsonify({
-            'success': False, 
-            'message': '❌ Please enter a valid email!'
-        }), 400
-    
-    # Generate OTP
-    otp = generate_otp()
-    
-    # Store safely
-    session['otp'] = otp
-    session['email'] = email
-    session['otp_time'] = time.time()
-    session['otp_attempts'] = 0
+        return jsonify({'success': False, 'message': '❌ No form data received!'}), 400
 
-    username = email.split("@")[0]
-    # session['username']=username
-    global CURRENT_USERID
-    CURRENT_USERID=username
-    
-    print(f"🔢 Generated OTP: {otp} for {email}")
-    
-    # Send email
-    if send_otp_email(email, otp):
-        return jsonify({
-            'success': True, 
-            'message': f'✅ OTP sent to {email}! Check inbox/spam.',
-            'redirect': '/otp'
-        })
-    else:
-        session.clear()  # Clean up on failure
-        return jsonify({
-            'success': False, 
-            'message': '❌ Email failed. Check Gmail App Password!'
-        }), 500
+    username = (request.form.get('username') or '').strip()
+    email = (request.form.get('email') or '').strip()
+    password = request.form.get('password') or ''
 
-@app.route('/verify-otp', methods=['POST'])
-def verify_otp():
-    # Check if form data exists
-    if not request.form:
-        return jsonify({
-            'success': False, 
-            'message': '❌ No form data received!'
-        }), 400
-    
-    # Get and validate OTP
-    user_otp = request.form.get("otp")
-    if not user_otp:
-        return jsonify({
-            'success': False, 
-            'message': '❌ Please enter OTP!'
-        }), 400
-    
-    user_otp = user_otp.strip()
-    if len(user_otp) != 6 or not user_otp.isdigit():
-        return jsonify({
-            'success': False, 
-            'message': '❌ OTP must be 6 digits!'
-        }), 400
-    
-    # Get stored data
-    email = session.get('email')
-    stored_otp = session.get('otp')
-    
-    if not email or not stored_otp:
-        return jsonify({
-            'success': False, 
-            'message': '❌ Session expired. Please resend OTP!'
-        }), 400
-    
-    # Check expiration (5 minutes = 300 seconds)
-    otp_age = time.time() - session.get('otp_time', 0)
-    attempts = session.get('otp_attempts', 0)
-    
-    if otp_age > 300:
-        session.clear()
-        return jsonify({
-            'success': False, 
-            'message': '⏰ OTP expired! Click RESEND.',
-            'expired': True
-        }), 400
-    
-    if attempts >= 3:
-        session.clear()
-        return jsonify({
-            'success': False, 
-            'message': '❌ Too many failed attempts!'
-        }), 400
-    
-    # ✅ SUCCESS CHECK
-    if user_otp == stored_otp:
-        session['otp_verified'] = True
-        session['verified_email'] = email
-        session['login_time'] = time.time()
-        
-        # Clean up
-        session.pop('otp', None)
-        session.pop('otp_time', None)
-        session.pop('otp_attempts', None)
-        
-        print(f"✅ OTP verified for {email}")
-        return jsonify({
-            'success': True, 
-            'message': '🎉 Verification successful!',
-            'redirect': '/dashboard'
-        })
-    
-    # ❌ FAILED ATTEMPT
-    attempts += 1
-    session['otp_attempts'] = attempts
-    remaining = 3 - attempts
-    
+    if not username or not email or not password:
+        return jsonify({'success': False, 'message': '❌ Username, email, and password are all required!'}), 400
+
+    if len(username) < 3:
+        return jsonify({'success': False, 'message': '❌ Username must be at least 3 characters!'}), 400
+
+    if '@' not in email or '.' not in email.split('@')[-1]:
+        return jsonify({'success': False, 'message': '❌ Please enter a valid email!'}), 400
+
+    if len(password) < 6:
+        return jsonify({'success': False, 'message': '❌ Password must be at least 6 characters!'}), 400
+
+    try:
+        create_user(username, email, password)
+    except sqlite3.IntegrityError:
+        return jsonify({'success': False, 'message': '❌ That username or email is already registered!'}), 400
+
+    row = get_user_by_username(username)
+    session['user_id'] = row[0]
+    session['username'] = row[1]
+
+    print(f"✅ New user registered: {username}")
     return jsonify({
-        'success': False, 
-        'message': f'❌ Wrong OTP! {remaining} attempts left.',
-        'attempts_left': remaining
+        'success': True,
+        'message': f'🎉 Account created! Welcome, {username}.',
+        'redirect': '/dashboard'
     })
 
-# ADD THIS MISSING resend_otp ROUTE
-@app.route('/resend-otp', methods=['POST'])
-def resend_otp():
+
+@app.route('/login', methods=['POST'])
+def do_login():
     if not request.form:
-        return jsonify({'success': False, 'message': '❌ No form data!'}), 400
-    
-    email = request.form.get('email') or session.get('email')
-    if not email:
-        return jsonify({'success': False, 'message': '❌ No email found!'}), 400
-    
-    # Clear old data
-    session.pop('otp', None)
-    session.pop('otp_time', None)
-    session.pop('otp_attempts', None)
-    
-    # Generate new OTP
-    otp = generate_otp()
-    session['otp'] = otp
-    session['email'] = email
-    session['otp_time'] = time.time()
-    session['otp_attempts'] = 0
-    
-    
-    print(f"🔄 RESENT OTP: {otp} for {email}")
-    
-    if send_otp_email(email, otp):
-        return jsonify({
-            'success': True, 
-            'message': f'✅ New OTP sent to {email}!',
-            'redirect': '/otp'
-        })
-    else:
-        return jsonify({
-            'success': False, 
-            'message': '❌ Failed to send OTP!'
-        }), 500
+        return jsonify({'success': False, 'message': '❌ No form data received!'}), 400
+
+    username = (request.form.get('username') or '').strip()
+    password = request.form.get('password') or ''
+
+    if not username or not password:
+        return jsonify({'success': False, 'message': '❌ Username and password are required!'}), 400
+
+    row = get_user_by_username(username)
+    if not row or not check_password_hash(row[3], password):
+        return jsonify({'success': False, 'message': '❌ Invalid username or password!'}), 401
+
+    session['user_id'] = row[0]
+    session['username'] = row[1]
+
+    print(f"✅ Login: {username}")
+    return jsonify({
+        'success': True,
+        'message': f'🎉 Welcome back, {username}!',
+        'redirect': '/dashboard'
+    })
 
 
 @app.route('/dashboard')
+@login_required
 def dashboard():
-    if not session.get('otp_verified'):
-        return redirect('/login')
     return render_template('index.html')
 
 @app.route('/status')
+@login_required
 def status():
-    present, absent, locked = get_attendance_counts(CURRENT_USERID)
+    username = session['username']
+    state = get_user_state(username)
+    present, absent, locked = get_attendance_counts(username)
     return jsonify({
-        'face': face_detected,
-        'expression': expression,
-        'gesture': gesture,
-        'filter': current_filter,
-        'attendance': attendance_status,
-        'speech': current_speech_text,
-        'listening': is_listening,
-        'user': CURRENT_USERID,
-        'present_count': present_count,
-        'absent_count': absent_count,
+        'face': state['face_detected'],
+        'expression': state['expression'],
+        'gesture': state['gesture'],
+        'filter': state['current_filter'],
+        'attendance': state['attendance_status'],
+        'speech': state['current_speech_text'],
+        'listening': state['is_listening'],
+        'user': username,
+        'present_count': state['present_count'],
+        'absent_count': state['absent_count'],
         'total_present': present,
         'total_absent': absent,
         'locked': locked > 0,
-        'verified': session.get('otp_verified', False)
+        'verified': True
     })
 
 @app.route('/logout')
@@ -562,20 +465,21 @@ def logout():
     session.clear()
     return redirect('/login')
 
-# Other routes unchanged...
 @app.route('/toggle-speech', methods=['POST'])
+@login_required
 def toggle_speech():
-    global is_listening
-    is_listening = not is_listening
-    print(f"Speech listening: {'ON' if is_listening else 'OFF'}")
-    return jsonify({'listening': is_listening})
+    state = get_user_state(session['username'])
+    state['is_listening'] = not state['is_listening']
+    print(f"Speech listening ({session['username']}): {'ON' if state['is_listening'] else 'OFF'}")
+    return jsonify({'listening': state['is_listening']})
 
 @app.route('/filter/<name>')
+@login_required
 def set_filter(name):
-    global current_filter
+    state = get_user_state(session['username'])
     if name in filters:
-        current_filter = name
-    return jsonify({'filter': current_filter})
+        state['current_filter'] = name
+    return jsonify({'filter': state['current_filter']})
 
 @app.route('/speech-records')
 def speech_records():
@@ -599,8 +503,13 @@ def handle_frame(data):
     Receives a single JPEG frame captured client-side via getUserMedia
     (sent as a base64 data URL string), runs the same detection/filter
     pipeline the old server-side camera loop used, and emits the
-    annotated frame back to that same client only.
+    annotated frame back to that same client only. Uses the logged-in
+    user's own isolated state (see get_user_state) so concurrent users'
+    detection results never mix.
     """
+    username = session.get('username')
+    if not username:
+        return  # not authenticated — ignore silently
     try:
         data_url = data.get('image', '') if isinstance(data, dict) else data
         # Strip the "data:image/jpeg;base64," prefix if present
@@ -612,7 +521,8 @@ def handle_frame(data):
         if frame is None:
             return
 
-        processed = process_frame(frame)
+        state = get_user_state(username)
+        processed = process_frame(frame, state)
 
         ok, buffer = cv2.imencode('.jpg', processed, [cv2.IMWRITE_JPEG_QUALITY, 70])
         if not ok:
@@ -620,7 +530,7 @@ def handle_frame(data):
         out_b64 = base64.b64encode(buffer).decode('utf-8')
         emit('processed_frame', {'image': f'data:image/jpeg;base64,{out_b64}'})
     except Exception as e:
-        print(f"Frame processing error: {e}")
+        print(f"Frame processing error ({username}): {e}")
 
 
 @socketio.on('speech_text')
@@ -628,30 +538,38 @@ def handle_speech_text(data):
     """
     Receives a transcribed phrase from the browser's Web Speech API
     (see index.html) instead of the old server-side sr.Microphone() loop.
+    Tagged and stored under the logged-in user's own username.
     """
-    global current_speech_text
+    username = session.get('username')
+    if not username:
+        return
     text = (data.get('text', '') if isinstance(data, dict) else str(data)).strip()
     if not text:
         return
-    current_speech_text = text
-    user_id = CURRENT_USERID or "unknown_user"
-    save_speech_record(user_id, text)
-    print(f"✅ HEARD ({user_id}):", text)
+    state = get_user_state(username)
+    state['current_speech_text'] = text
+    save_speech_record(username, text)
+    print(f"✅ HEARD ({username}):", text)
 
 
 @socketio.on('message')
 def handle_message(data):
+    username = session.get('username')
+    if not username:
+        emit('response', {'message': "⚠️ Please log in first."})
+        return
+
+    state = get_user_state(username)
     user_message = data['message']
-    
-    # Context string you already have in your app.py
+
     context = f"""
-    You are an AI Attendance Assistant.
-    Attendance: {attendance_status}
-    Present count: {present_count}
-    Absent count: {absent_count}
-    Gesture: {gesture}
-    Expression: {expression}
-    Speech: {current_speech_text}
+    You are an AI Attendance Assistant for user '{username}'.
+    Attendance: {state['attendance_status']}
+    Present count: {state['present_count']}
+    Absent count: {state['absent_count']}
+    Gesture: {state['gesture']}
+    Expression: {state['expression']}
+    Speech: {state['current_speech_text']}
     """
     
     if client is None:
@@ -677,7 +595,7 @@ def handle_message(data):
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    print("🚀 Smart Attendance System with OTP Started!")
+    print("🚀 Smart Attendance System Started!")
     print(f"🌐 Login: http://localhost:{port}/login")
     # debug=True (via FLASK_DEBUG=true) should only ever be used locally.
     socketio.run(app, debug=DEBUG, host='0.0.0.0', port=port)
