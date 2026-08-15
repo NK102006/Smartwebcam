@@ -5,6 +5,7 @@ import os
 import logging
 import sqlite3
 import time
+import eventlet
 from datetime import datetime, date,timedelta
 from flask_socketio import SocketIO, emit
 from groq import Groq
@@ -37,7 +38,18 @@ app.static_folder = 'static'
 
 # Restrict this to your real frontend origin(s) in production instead of "*"
 CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "*")
-socketio = SocketIO(app, cors_allowed_origins=CORS_ALLOWED_ORIGINS)
+# logger/engineio_logger=True prints the real reason for every connect/
+# disconnect/error to stdout, which shows up in Render's Logs tab — turn
+# this off again once the connection issue is diagnosed and fixed, since
+# it's noisy for normal operation.
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=CORS_ALLOWED_ORIGINS,
+    logger=True,
+    engineio_logger=True,
+    ping_timeout=60,
+    ping_interval=25,
+)
 
 DB_PATH = os.environ.get("DB_PATH", "attendance.db")
 SPEECH_DB_PATH = os.environ.get("SPEECH_DB_PATH", "speech.db")
@@ -313,6 +325,11 @@ def process_frame(frame, state):
         if updated:
             state['attendance_status'] = new_status
 
+    # Yield to eventlet's event loop between CPU-heavy stages so the
+    # Socket.IO ping/pong heartbeat doesn't get starved by this frame's
+    # processing (which previously caused false-positive disconnects).
+    eventlet.sleep(0)
+
     # Hand detection
     result = hands.process(rgb_small)
     state['gesture'] = "none"
@@ -322,6 +339,8 @@ def process_frame(frame, state):
             g = detect_gesture(hand_landmarks, hand_label)
             state['gesture'] = f"{hand_label}:{g}"
             mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+    eventlet.sleep(0)
 
     # Apply filters
     current_filter = state['current_filter']

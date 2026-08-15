@@ -607,9 +607,9 @@
         const captureCtx = captureCanvas.getContext('2d');
         const cameraErrorEl = document.getElementById('camera-error');
 
-        const FRAME_WIDTH = 640;
-        const FRAME_HEIGHT = 480;
-        const SEND_INTERVAL_MS = 200; // ~5 fps sent to the server, adjust for your bandwidth/CPU budget
+        const FRAME_WIDTH = 480;
+        const FRAME_HEIGHT = 360;
+        const SEND_INTERVAL_MS = 400; // ~2.5 fps — kept conservative for free-tier CPU/bandwidth limits
 
         displayCanvas.width = FRAME_WIDTH;
         displayCanvas.height = FRAME_HEIGHT;
@@ -631,7 +631,7 @@
                 sendTimer = setInterval(() => {
                     if (localVideo.readyState < 2) return; // not enough data yet
                     captureCtx.drawImage(localVideo, 0, 0, FRAME_WIDTH, FRAME_HEIGHT);
-                    const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.7);
+                    const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.55);
                     socket.emit('frame', { image: dataUrl });
                 }, SEND_INTERVAL_MS);
             } catch (err) {
