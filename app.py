@@ -1,3 +1,11 @@
+# eventlet.monkey_patch() MUST run before any other module (Flask, Werkzeug,
+# pydantic via groq, etc.) is imported, or eventlet can't make their I/O
+# cooperative — this was previously happening too late, which was throwing
+# a monkey-patch exception on every worker boot and contributing to the
+# event loop stalls that triggered gunicorn's WORKER TIMEOUT/SIGKILL cycle.
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask, render_template, Response, jsonify, request, session, redirect, url_for
 import cv2
 import mediapipe as mp
@@ -5,7 +13,6 @@ import os
 import logging
 import sqlite3
 import time
-import eventlet
 from datetime import datetime, date,timedelta
 from flask_socketio import SocketIO, emit
 from groq import Groq
@@ -216,7 +223,7 @@ smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_smile
 eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
 
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(min_detection_confidence=0.7)
+hands = mp_hands.Hands(min_detection_confidence=0.7, model_complexity=0, max_num_hands=1)
 mp_draw = mp.solutions.drawing_utils
 
 # Static config (not per-user)
